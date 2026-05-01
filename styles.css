@@ -140,90 +140,6 @@ code {
     font-size: 1.25rem;
 }
 
-.top-proof-grid {
-    display: grid;
-    grid-template-columns: minmax(0, 1.25fr) minmax(320px, 0.9fr);
-    gap: 1rem;
-    margin-top: 1rem;
-}
-
-.rubric-panel,
-.demo-panel {
-    min-height: 100%;
-}
-
-.coverage-checklist {
-    list-style: none;
-    padding: 0;
-    margin: 0;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.7rem 1rem;
-}
-
-.coverage-checklist li {
-    display: flex;
-    gap: 0.7rem;
-    align-items: center;
-    padding: 0.8rem 0.9rem;
-    border-radius: 16px;
-    background: rgba(8, 15, 30, 0.72);
-    border: 1px solid rgba(148, 163, 184, 0.12);
-    color: var(--text-soft);
-}
-
-.check-icon {
-    width: 1.5rem;
-    height: 1.5rem;
-    border-radius: 999px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(34, 197, 94, 0.18);
-    color: #86efac;
-    font-weight: 700;
-    flex: 0 0 auto;
-}
-
-.demo-copy {
-    margin: 0 0 1rem;
-    color: var(--text-soft);
-    line-height: 1.65;
-}
-
-.demo-action-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.8rem;
-    align-items: center;
-}
-
-.hero-cta-button {
-    min-width: 220px;
-    padding-inline: 1.15rem;
-    box-shadow: 0 18px 32px rgba(14, 165, 233, 0.18);
-}
-
-.demo-proof-banner {
-    margin-top: 1rem;
-    padding: 0.95rem 1rem;
-    border-radius: 18px;
-    border: 1px solid rgba(148, 163, 184, 0.14);
-    background: rgba(8, 15, 30, 0.88);
-    color: var(--text-soft);
-    line-height: 1.6;
-}
-
-.demo-proof-banner.success {
-    border-color: rgba(34, 197, 94, 0.28);
-    background: linear-gradient(180deg, rgba(12, 30, 24, 0.94), rgba(8, 15, 30, 0.94));
-}
-
-.demo-proof-banner.fail {
-    border-color: rgba(239, 68, 68, 0.3);
-    background: linear-gradient(180deg, rgba(40, 16, 18, 0.94), rgba(8, 15, 30, 0.94));
-}
-
 .teaching-grid {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -971,7 +887,6 @@ button:focus-visible {
 }
 
 @media (max-width: 1180px) {
-    .top-proof-grid,
     .teaching-grid {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
@@ -1009,9 +924,6 @@ button:focus-visible {
         grid-template-columns: 1fr;
     }
 
-    .top-proof-grid {
-        grid-template-columns: 1fr;
-    }
 }
 
 @media (max-width: 760px) {
@@ -1026,15 +938,10 @@ button:focus-visible {
     }
 
     .teaching-grid,
-    .top-proof-grid,
     .details-grid,
     .preset-grid,
     .playback-grid,
     .stats-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .coverage-checklist {
         grid-template-columns: 1fr;
     }
 
@@ -1046,8 +953,7 @@ button:focus-visible {
     }
 
     .verification-topline,
-    .matrix-toolbar,
-    .demo-action-row {
+    .matrix-toolbar {
         flex-direction: column;
         align-items: flex-start;
     }

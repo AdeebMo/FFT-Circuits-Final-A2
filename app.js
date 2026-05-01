@@ -145,7 +145,6 @@
         dom.sampleInput = document.getElementById("sample-input");
         dom.inputError = document.getElementById("input-error");
         dom.buildButton = document.getElementById("build-btn");
-        dom.fullDemoButton = document.getElementById("full-demo-btn");
         dom.stepButton = document.getElementById("step-btn");
         dom.playButton = document.getElementById("play-btn");
         dom.pauseButton = document.getElementById("pause-btn");
@@ -184,7 +183,6 @@
         dom.tooltip = document.getElementById("tooltip");
         dom.timeSummaryLabel = document.getElementById("time-summary-label");
         dom.spectrumSummaryLabel = document.getElementById("spectrum-summary-label");
-        dom.demoProofBanner = document.getElementById("demo-proof-banner");
         dom.suiteSummary = document.getElementById("suite-summary");
         dom.suiteSummaryBadge = document.getElementById("suite-summary-badge");
         dom.testSuiteBody = document.getElementById("test-suite-body");
@@ -250,7 +248,6 @@
         });
 
         dom.buildButton.addEventListener("click", handleBuild);
-        dom.fullDemoButton.addEventListener("click", runFullRubricDemo);
         dom.stepButton.addEventListener("click", stepForward);
         dom.playButton.addEventListener("click", playTimeline);
         dom.pauseButton.addEventListener("click", pauseTimeline);
@@ -346,18 +343,6 @@
             matrixSize: 4
         });
         applyBuildResults(DEFAULT_INPUT, { activeTab: "matrix", status: "Ready" });
-    }
-
-    function runFullRubricDemo() {
-        applyScenario({
-            n: 4,
-            samples: DEFAULT_INPUT,
-            presetName: "alternating",
-            mode: "naive",
-            activeTab: "comparison",
-            matrixSize: 4
-        });
-        applyBuildResults(DEFAULT_INPUT, { activeTab: "comparison", status: "Ready" });
     }
 
     function handleBuild() {
@@ -480,7 +465,6 @@
 
     function renderAll() {
         renderMeta();
-        renderDemoProof();
         renderTabs();
         renderOverviewCharts();
         renderDeepDivePanels();
@@ -504,25 +488,6 @@
         dom.activeModeLabel.textContent = MODE_LABELS[state.mode];
         dom.pseudocodeModeLabel.textContent = MODE_LABELS[state.mode];
         dom.timeSummaryLabel.textContent = `n = ${state.n} | x = [${getPreviewSamples().map((value) => formatNumber(value)).join(", ")}]`;
-    }
-
-    function renderDemoProof() {
-        if (!state.results) {
-            dom.demoProofBanner.className = "demo-proof-banner";
-            dom.demoProofBanner.innerHTML = `
-                <strong>Demo not built yet.</strong><br>
-                Use <strong>Run Full Rubric Demo</strong> or <strong>Build Steps</strong> to generate the correctness proof, output comparison, and guided walkthrough.
-            `;
-            return;
-        }
-
-        const verification = state.results.verification;
-        const overallClass = verification.allPass ? "success" : "fail";
-        dom.demoProofBanner.className = `demo-proof-banner ${overallClass}`;
-        dom.demoProofBanner.innerHTML = `
-            <strong>${verification.allPass ? "Verification ready" : "Verification failed"}.</strong><br>
-            Current built example x = [${state.results.samples.map((value) => formatNumber(value)).join(", ")}] is compared against both FFT implementations. Use the comparison tab for the bin-by-bin proof and the test suite below for multiple-input evidence.
-        `;
     }
 
     function renderTabs() {
@@ -614,7 +579,7 @@
         if (!timeline.length) {
             dom.historyBody.innerHTML = `
                 <tr>
-                    <td colspan="6">No execution history yet. Build the steps or run the full rubric demo to populate the trace table with every multiplication, split, and butterfly combine.</td>
+                    <td colspan="6">No execution history yet. Build the steps to populate the trace table with every multiplication, split, and butterfly combine.</td>
                 </tr>
             `;
             return;
@@ -1722,7 +1687,7 @@
                 <div class="empty-state">
                     <div>
                         <strong>No comparison is available yet.</strong>
-                        Build the transform or run the full rubric demo to generate the naive DFT baseline and compare both FFT outputs against it.
+                        Build the transform to generate the naive DFT baseline and compare both FFT outputs against it.
                     </div>
                 </div>
             `;
