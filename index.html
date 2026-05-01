@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Discrete Fourier Transform &amp; FFT Circuit Visualizer</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="page-shell">
+        <header class="hero">
+            <div class="hero-copy">
+                <p class="eyebrow">Algorithms II Final Project / CLO-2</p>
+                <h1>Discrete Fourier Transform &amp; FFT Circuit Visualizer</h1>
+                <p class="hero-subtitle">
+                    An offline teaching simulator for understanding how the Discrete Fourier Transform maps
+                    time-domain samples into frequency bins, why the naive method costs O(n^2), and how the
+                    Cooley-Tukey FFT reorganizes the same computation into an O(n log n) butterfly network.
+                </p>
+            </div>
+            <div class="hero-summary">
+                <div class="hero-chip">
+                    <span>Naive DFT</span>
+                    <strong>O(n^2)</strong>
+                </div>
+                <div class="hero-chip">
+                    <span>FFT</span>
+                    <strong>O(n log n)</strong>
+                </div>
+            </div>
+        </header>
+
+        <section class="teaching-grid" aria-label="Core learning goals">
+            <article class="info-card">
+                <h2>What the DFT Does</h2>
+                <p>The DFT converts sampled signal values x[j] into frequency-domain coefficients X[k] so we can see which oscillations are present in the signal.</p>
+            </article>
+            <article class="info-card">
+                <h2>Why Naive DFT Is Slow</h2>
+                <p>Each output X[k] multiplies every input x[j] by a root of unity, so n outputs each require n interactions, giving n^2 total pairings.</p>
+            </article>
+            <article class="info-card">
+                <h2>How FFT Speeds It Up</h2>
+                <p>FFT splits the transform into even and odd subproblems, reuses smaller DFTs, and combines them with twiddle factors in only log2(n) stages.</p>
+            </article>
+            <article class="info-card">
+                <h2>What Butterfly Circuits Mean</h2>
+                <p>A butterfly represents one structured combine step: two values enter, one twiddle factor is applied, and two transformed outputs leave.</p>
+            </article>
+        </section>
+
+        <main class="workspace">
+            <aside class="control-panel panel">
+                <div class="panel-header">
+                    <div>
+                        <p class="section-kicker">Simulation Controls</p>
+                        <h2>Algorithm Lab</h2>
+                    </div>
+                    <span id="status-pill" class="status-pill idle">Idle</span>
+                </div>
+
+                <section class="control-section">
+                    <h3>Mode Selector</h3>
+                    <div class="segment-group" id="mode-selector" role="tablist" aria-label="Algorithm mode">
+                        <button class="segment is-active" data-mode="naive" type="button">Naive DFT</button>
+                        <button class="segment" data-mode="recursive" type="button">Recursive FFT</button>
+                        <button class="segment" data-mode="iterative" type="button">Iterative FFT</button>
+                    </div>
+                </section>
+
+                <section class="control-section">
+                    <h3>Input Size</h3>
+                    <div class="segment-group" id="size-selector" aria-label="Input size selector">
+                        <button class="segment is-active" data-size="4" type="button">n = 4</button>
+                        <button class="segment" data-size="8" type="button">n = 8</button>
+                    </div>
+                    <p class="support-text">FFT is enabled only for powers of two. This simulator supports radix-2 sizes 4 and 8.</p>
+                </section>
+
+                <section class="control-section">
+                    <div class="section-row">
+                        <h3>Custom Input Samples</h3>
+                        <span class="mono-badge">x[j]</span>
+                    </div>
+                    <label class="sr-only" for="sample-input">Enter comma-separated real-valued samples</label>
+                    <textarea id="sample-input" rows="3" spellcheck="false">1, 0, 1, 0</textarea>
+                    <p class="support-text">Enter comma-separated real numbers. Example: <code>1, 0, 1, 0</code></p>
+                    <p id="input-error" class="inline-message error" aria-live="polite"></p>
+                </section>
+
+                <section class="control-section">
+                    <h3>Preset Examples</h3>
+                    <div class="preset-grid">
+                        <button class="secondary-button preset-button" data-preset="impulse" type="button">Impulse Signal</button>
+                        <button class="secondary-button preset-button" data-preset="constant" type="button">Constant Signal</button>
+                        <button class="secondary-button preset-button is-active" data-preset="alternating" type="button">Alternating Signal</button>
+                        <button class="secondary-button preset-button" data-preset="sine" type="button">Sine-like Signal</button>
+                    </div>
+                </section>
+
+                <section class="control-section">
+                    <h3>Playback Controls</h3>
+                    <div class="playback-grid">
+                        <button id="build-btn" class="primary-button" type="button">Build Steps</button>
+                        <button id="step-btn" class="secondary-button" type="button">Step</button>
+                        <button id="play-btn" class="secondary-button" type="button">Play</button>
+                        <button id="pause-btn" class="secondary-button" type="button">Pause</button>
+                        <button id="reset-btn" class="secondary-button" type="button">Reset</button>
+                    </div>
+                </section>
+
+                <section class="control-section">
+                    <div class="section-row">
+                        <h3>Playback Speed</h3>
+                        <span id="speed-label" class="mono-badge">1.00x</span>
+                    </div>
+                    <label class="sr-only" for="speed-slider">Playback speed</label>
+                    <input id="speed-slider" type="range" min="0.25" max="4" step="0.25" value="1">
+                    <div class="range-labels">
+                        <span>0.25x</span>
+                        <span>4x</span>
+                    </div>
+                </section>
+
+                <section class="control-section compact-stack">
+                    <div class="meta-row">
+                        <span>Step Counter</span>
+                        <strong id="step-counter">Step 0 / 0</strong>
+                    </div>
+                    <div class="meta-row">
+                        <span>Active Visualization</span>
+                        <strong id="active-mode-label">Naive DFT</strong>
+                    </div>
+                </section>
+
+                <section class="control-section">
+                    <h3>Operation Counters</h3>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <span>Complex Multiplications</span>
+                            <strong id="counter-mult">0</strong>
+                        </div>
+                        <div class="stat-card">
+                            <span>Complex Additions</span>
+                            <strong id="counter-add">0</strong>
+                        </div>
+                        <div class="stat-card">
+                            <span>Butterfly Operations</span>
+                            <strong id="counter-butterfly">0</strong>
+                        </div>
+                        <div class="stat-card">
+                            <span>Stages Completed</span>
+                            <strong id="counter-stage">0</strong>
+                        </div>
+                    </div>
+                    <div id="complexity-compare" class="comparison-callout"></div>
+                </section>
+
+                <section class="control-section">
+                    <h3>Verification</h3>
+                    <div id="verification-panel" class="verification-panel">
+                        <p id="verification-status" class="verification-heading">Verification pending.</p>
+                        <p id="verification-details" class="support-text">Build the algorithms to compare recursive and iterative FFT outputs against the naive DFT baseline.</p>
+                    </div>
+                </section>
+            </aside>
+
+            <section class="visualization-lab">
+                <div class="overview-row">
+                    <article class="panel chart-panel">
+                        <div class="panel-header">
+                            <div>
+                                <p class="section-kicker">Input Signal</p>
+                                <h2>Time-Domain Samples</h2>
+                            </div>
+                            <span class="mono-badge" id="time-summary-label">Real-valued input</span>
+                        </div>
+                        <div class="svg-frame">
+                            <svg id="time-domain-svg" viewBox="0 0 760 280" role="img" aria-label="Time-domain signal chart"></svg>
+                        </div>
+                    </article>
+
+                    <article class="panel chart-panel">
+                        <div class="panel-header">
+                            <div>
+                                <p class="section-kicker">Transform Output</p>
+                                <h2>Frequency Spectrum |X[k]|</h2>
+                            </div>
+                            <span class="mono-badge" id="spectrum-summary-label">Build steps to reveal bins</span>
+                        </div>
+                        <div class="svg-frame">
+                            <svg id="frequency-spectrum-svg" viewBox="0 0 760 280" role="img" aria-label="Frequency spectrum chart"></svg>
+                        </div>
+                    </article>
+                </div>
+
+                <article class="panel deep-dive-panel">
+                    <div class="tab-strip" role="tablist" aria-label="Visualization tabs">
+                        <button class="tab-button is-active" data-tab="matrix" type="button">DFT Matrix</button>
+                        <button class="tab-button" data-tab="naive" type="button">Naive DFT</button>
+                        <button class="tab-button" data-tab="recursive" type="button">Recursive FFT</button>
+                        <button class="tab-button" data-tab="butterfly" type="button">Butterfly Circuit</button>
+                        <button class="tab-button" data-tab="bitreversal" type="button">Bit Reversal</button>
+                        <button class="tab-button" data-tab="comparison" type="button">Output Comparison</button>
+                    </div>
+
+                    <div class="tab-content">
+                        <section class="tab-panel is-active" id="tab-matrix">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="section-kicker">Matrix View</p>
+                                    <h2>DFT Matrix W</h2>
+                                </div>
+                                <span class="support-text">Each cell shows a root-of-unity power used in matrix-vector multiplication.</span>
+                            </div>
+                            <div class="svg-frame tall">
+                                <svg id="dft-matrix-svg" viewBox="0 0 760 480" role="img" aria-label="DFT matrix visualization"></svg>
+                            </div>
+                        </section>
+
+                        <section class="tab-panel" id="tab-naive">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="section-kicker">Step Trace</p>
+                                    <h2>Naive DFT Accumulation</h2>
+                                </div>
+                                <span class="support-text">See every X[k] accumulate from all x[j] terms.</span>
+                            </div>
+                            <div class="svg-frame tall">
+                                <svg id="naive-dft-svg" viewBox="0 0 760 420" role="img" aria-label="Naive DFT accumulation visualization"></svg>
+                            </div>
+                        </section>
+
+                        <section class="tab-panel" id="tab-recursive">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="section-kicker">Even/Odd Split</p>
+                                    <h2>Recursive Cooley-Tukey FFT</h2>
+                                </div>
+                                <span class="support-text">Trace the decomposition tree and the twiddle-factor combine step.</span>
+                            </div>
+                            <div class="svg-frame tall">
+                                <svg id="recursive-fft-svg" viewBox="0 0 760 460" role="img" aria-label="Recursive FFT decomposition tree"></svg>
+                            </div>
+                        </section>
+
+                        <section class="tab-panel" id="tab-butterfly">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="section-kicker">Iterative Structure</p>
+                                    <h2>Butterfly Circuit</h2>
+                                </div>
+                                <span class="support-text">Each stage combines pairs of wires with one twiddle factor.</span>
+                            </div>
+                            <div class="svg-frame tall">
+                                <svg id="butterfly-svg" viewBox="0 0 760 460" role="img" aria-label="Iterative FFT butterfly circuit"></svg>
+                            </div>
+                        </section>
+
+                        <section class="tab-panel" id="tab-bitreversal">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="section-kicker">Input Reordering</p>
+                                    <h2>Bit-Reversal Permutation</h2>
+                                </div>
+                                <span class="support-text">Binary index reversal places inputs into the order expected by the iterative circuit.</span>
+                            </div>
+                            <div id="bit-reversal-panel" class="bit-panel"></div>
+                        </section>
+
+                        <section class="tab-panel" id="tab-comparison">
+                            <div class="panel-header">
+                                <div>
+                                    <p class="section-kicker">Correctness Check</p>
+                                    <h2>Naive DFT vs FFT Outputs</h2>
+                                </div>
+                                <span class="support-text">Final frequency bins should agree within floating-point tolerance.</span>
+                            </div>
+                            <div id="output-comparison-panel" class="comparison-table-wrap"></div>
+                        </section>
+                    </div>
+
+                    <div id="tooltip" class="tooltip" hidden></div>
+                </article>
+
+                <div class="insight-row">
+                    <article class="panel">
+                        <div class="panel-header">
+                            <div>
+                                <p class="section-kicker">Pseudocode</p>
+                                <h2>Line-by-Line Algorithm View</h2>
+                            </div>
+                            <span id="pseudocode-mode-label" class="mono-badge">Naive DFT</span>
+                        </div>
+                        <div id="pseudocode-panel" class="pseudocode-panel"></div>
+                    </article>
+
+                    <article class="panel">
+                        <div class="panel-header">
+                            <div>
+                                <p class="section-kicker">Current Step</p>
+                                <h2>Plain-English Explanation</h2>
+                            </div>
+                            <span class="mono-badge">Concrete values</span>
+                        </div>
+                        <div id="step-explanation" class="explanation-card">
+                            Build the steps to start tracing the transform. The explanation box will update with the exact values used in each multiplication, split, and butterfly combine.
+                        </div>
+                    </article>
+                </div>
+
+                <article class="panel history-panel">
+                    <div class="panel-header">
+                        <div>
+                            <p class="section-kicker">Execution Log</p>
+                            <h2>History Table</h2>
+                        </div>
+                        <span class="support-text">Click a row to jump to that recorded state.</span>
+                    </div>
+                    <div class="history-table-wrap">
+                        <table class="history-table">
+                            <thead>
+                                <tr>
+                                    <th>Step</th>
+                                    <th>Mode</th>
+                                    <th>Action</th>
+                                    <th>Current Indices</th>
+                                    <th>Important Value</th>
+                                    <th>Pseudocode Line</th>
+                                </tr>
+                            </thead>
+                            <tbody id="history-body"></tbody>
+                        </table>
+                    </div>
+                </article>
+            </section>
+        </main>
+
+        <section class="education-section">
+            <div class="section-heading">
+                <p class="section-kicker">Teaching Notes</p>
+                <h2>Algorithm Overview, Worked Example, and Presentation Support</h2>
+            </div>
+
+            <div class="details-grid">
+                <details class="detail-card" open>
+                    <summary>Overview</summary>
+                    <p>The Discrete Fourier Transform takes a finite list of samples and expresses it as a combination of discrete frequency components. It is useful in signal processing, filtering, compression, spectral analysis, communications, and polynomial multiplication.</p>
+                </details>
+
+                <details class="detail-card">
+                    <summary>Naive DFT</summary>
+                    <p>The naive DFT can be written as matrix-vector multiplication: X = W x. The matrix W contains powers of the primitive n-th root of unity, so each output X[k] is a weighted sum of every input sample.</p>
+                </details>
+
+                <details class="detail-card">
+                    <summary>Roots of Unity</summary>
+                    <p>For size n, the root of unity is omega = e<sup>-2pi i/n</sup>. Powers of omega lie on the complex unit circle and rotate by equal phase increments. The DFT reuses these rotations to measure how strongly each frequency pattern matches the signal.</p>
+                </details>
+
+                <details class="detail-card">
+                    <summary>Even/Odd Split</summary>
+                    <p>Cooley-Tukey FFT separates the input into even-indexed and odd-indexed samples. That converts one large transform into two smaller transforms that can be reused and combined instead of recomputed from scratch.</p>
+                </details>
+
+                <details class="detail-card">
+                    <summary>Butterfly Operation</summary>
+                    <p>A butterfly combine step computes <code>a = even + twiddle * odd</code> and <code>b = even - twiddle * odd</code>. This pair of additions and one multiplication is the atomic building block of the FFT circuit.</p>
+                </details>
+
+                <details class="detail-card">
+                    <summary>Bit Reversal</summary>
+                    <p>The iterative FFT processes butterflies stage by stage. Bit-reversed input order makes each stage operate on the correct subproblems without recursive function calls, so the circuit layout lines up with the mathematical decomposition.</p>
+                </details>
+
+                <details class="detail-card">
+                    <summary>Complexity</summary>
+                    <p>Naive DFT uses n outputs and n terms per output, so it scales like O(n^2). FFT has log2(n) stages with n/2 butterflies per stage, so its structure scales like O(n log n). For n = 8, that is about 64 pair interactions versus 12 butterflies.</p>
+                </details>
+
+                <details class="detail-card">
+                    <summary>Worked Example: n = 4, x = [1, 0, 1, 0]</summary>
+                    <p>The naive DFT gives X = [2, 0, 2, 0]. FFT splits the signal into even samples [1, 1] and odd samples [0, 0], computes two smaller transforms, then combines them with twiddle factors. Both algorithms produce the same final output.</p>
+                </details>
+
+                <details class="detail-card">
+                    <summary>Presentation Checklist</summary>
+                    <ul class="presentation-list">
+                        <li>First I show the input signal.</li>
+                        <li>Then I compute the naive DFT.</li>
+                        <li>Next I compare it with FFT.</li>
+                        <li>The key structural advantage is the even/odd split.</li>
+                        <li>The butterfly network shows the O(n log n) structure.</li>
+                        <li>Finally, I verify that FFT output matches the naive DFT output.</li>
+                    </ul>
+                </details>
+            </div>
+        </section>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
