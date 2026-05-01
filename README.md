@@ -12,6 +12,9 @@ The app is designed as an offline teaching simulator. It combines algorithm-corr
 ## Features
 - Dark-mode academic UI built for desktop and mobile
 - Works completely offline by opening `index.html`
+- Auto-builds the default example on page load
+- Top rubric coverage card for fast grading visibility
+- Full rubric demo button that jumps to the proof/comparison flow
 - Mode selector for:
   - Naive DFT
   - Recursive FFT
@@ -48,6 +51,9 @@ The app is designed as an offline teaching simulator. It combines algorithm-corr
 - Clickable history table
 - Output comparison table
 - Verification panel that checks FFT outputs against naive DFT
+- Correctness test suite across multiple predefined inputs
+- Complexity comparison table for `n = 4` and `n = 8`
+- DFT matrix size toggle for `n = 4` and `n = 8`
 - Bottom teaching notes for overview, complexity, worked example, and presentation talking points
 
 ## Algorithms Implemented

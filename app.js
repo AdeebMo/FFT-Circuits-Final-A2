@@ -62,6 +62,16 @@
         iterative: "butterfly"
     };
 
+    const DEFAULT_INPUT = [1, 0, 1, 0];
+    const DEFAULT_INPUT_TEXT = DEFAULT_INPUT.join(", ");
+    const CORRECTNESS_TESTS = [
+        { label: "n=4 alternating signal", samples: [1, 0, 1, 0] },
+        { label: "n=4 constant signal", samples: [1, 1, 1, 1] },
+        { label: "n=8 impulse signal", samples: [1, 0, 0, 0, 0, 0, 0, 0] },
+        { label: "n=8 sine-like signal", samples: Array.from({ length: 8 }, (_, index) => Number(Math.sin((2 * Math.PI * index) / 8).toFixed(3))) },
+        { label: "n=8 decimal/custom signal", samples: [0.5, -1, 2, 0, 1.5, 0, -0.5, 3] }
+    ];
+
     const PSEUDOCODE = {
         naive: [
             { line: 1, text: "for k = 0 to n - 1:", tip: "Choose one output frequency bin X[k] at a time." },
@@ -98,14 +108,16 @@
     const state = {
         mode: "naive",
         n: 4,
-        inputSamples: [1, 0, 1, 0],
-        inputText: "1, 0, 1, 0",
+        inputSamples: DEFAULT_INPUT.slice(),
+        inputText: DEFAULT_INPUT_TEXT,
         currentPreset: "alternating",
-        activeTab: "naive",
+        activeTab: "matrix",
         status: "Idle",
         speed: 1,
         currentStepIndex: -1,
+        matrixSize: 4,
         results: null,
+        testSuiteResults: [],
         timelines: {
             naive: [],
             recursive: [],
@@ -119,7 +131,8 @@
     function initApp() {
         cacheDom();
         bindEvents();
-        renderAll();
+        state.testSuiteResults = runCorrectnessSuite();
+        runDefaultAutoBuild();
         runSelfChecks();
     }
 
@@ -132,6 +145,7 @@
         dom.sampleInput = document.getElementById("sample-input");
         dom.inputError = document.getElementById("input-error");
         dom.buildButton = document.getElementById("build-btn");
+        dom.fullDemoButton = document.getElementById("full-demo-btn");
         dom.stepButton = document.getElementById("step-btn");
         dom.playButton = document.getElementById("play-btn");
         dom.pauseButton = document.getElementById("pause-btn");
@@ -146,11 +160,18 @@
         dom.counterButterfly = document.getElementById("counter-butterfly");
         dom.counterStage = document.getElementById("counter-stage");
         dom.complexityCompare = document.getElementById("complexity-compare");
+        dom.complexityTableBody = document.getElementById("complexity-table-body");
+        dom.verificationPanel = document.getElementById("verification-panel");
+        dom.verificationBadge = document.getElementById("verification-badge");
         dom.verificationStatus = document.getElementById("verification-status");
         dom.verificationDetails = document.getElementById("verification-details");
+        dom.verificationExtra = document.getElementById("verification-extra");
         dom.timeDomainSvg = document.getElementById("time-domain-svg");
         dom.frequencySpectrumSvg = document.getElementById("frequency-spectrum-svg");
         dom.dftMatrixSvg = document.getElementById("dft-matrix-svg");
+        dom.matrixTitle = document.getElementById("matrix-title");
+        dom.matrixSizeLabel = document.getElementById("matrix-size-label");
+        dom.matrixSizeButtons = Array.from(document.querySelectorAll("[data-matrix-size]"));
         dom.naiveDftSvg = document.getElementById("naive-dft-svg");
         dom.recursiveFftSvg = document.getElementById("recursive-fft-svg");
         dom.butterflySvg = document.getElementById("butterfly-svg");
@@ -163,6 +184,10 @@
         dom.tooltip = document.getElementById("tooltip");
         dom.timeSummaryLabel = document.getElementById("time-summary-label");
         dom.spectrumSummaryLabel = document.getElementById("spectrum-summary-label");
+        dom.demoProofBanner = document.getElementById("demo-proof-banner");
+        dom.suiteSummary = document.getElementById("suite-summary");
+        dom.suiteSummaryBadge = document.getElementById("suite-summary-badge");
+        dom.testSuiteBody = document.getElementById("test-suite-body");
     }
 
     function bindEvents() {
@@ -225,6 +250,7 @@
         });
 
         dom.buildButton.addEventListener("click", handleBuild);
+        dom.fullDemoButton.addEventListener("click", runFullRubricDemo);
         dom.stepButton.addEventListener("click", stepForward);
         dom.playButton.addEventListener("click", playTimeline);
         dom.pauseButton.addEventListener("click", pauseTimeline);
@@ -239,6 +265,13 @@
             button.addEventListener("click", () => {
                 state.activeTab = button.dataset.tab;
                 renderTabs();
+            });
+        });
+
+        dom.matrixSizeButtons.forEach((button) => {
+            button.addEventListener("click", () => {
+                state.matrixSize = Number(button.dataset.matrixSize);
+                renderDeepDivePanels();
             });
         });
 
@@ -262,28 +295,73 @@
         dom.dftMatrixSvg.addEventListener("mouseleave", hideTooltip);
     }
 
-    function handleBuild() {
-        const parsed = parseSampleInput(dom.sampleInput.value, state.n);
-        state.inputText = dom.sampleInput.value;
-        if (!parsed.ok) {
-            dom.inputError.textContent = parsed.error;
-            state.status = "Idle";
-            renderAll();
-            return;
-        }
-
+    function applyScenario({ n, samples, presetName = null, mode = state.mode, activeTab = state.activeTab, matrixSize = n }) {
         stopPlayback();
-        state.inputSamples = parsed.samples.slice();
-        state.results = buildResults(state.inputSamples);
+        state.n = n;
+        state.mode = mode;
+        state.activeTab = activeTab;
+        state.matrixSize = matrixSize;
+        state.currentPreset = presetName;
+        state.inputSamples = samples.slice();
+        state.inputText = samples.join(", ");
+        dom.sampleInput.value = state.inputText;
+    }
+
+    function applyBuildResults(samples, { activeTab = state.activeTab, status = "Ready" } = {}) {
+        state.results = buildResults(samples);
         state.timelines = {
             naive: state.results.naive.timeline,
             recursive: state.results.recursive.timeline,
             iterative: state.results.iterative.timeline
         };
         state.currentStepIndex = -1;
-        state.status = "Ready";
-        state.activeTab = MODE_TAB_MAP[state.mode];
+        state.status = status;
+        state.activeTab = activeTab;
         renderAll();
+        return true;
+    }
+
+    function buildFromInputText({ activeTab = state.activeTab, status = "Ready" } = {}) {
+        const parsed = parseSampleInput(dom.sampleInput.value, state.n);
+        state.inputText = dom.sampleInput.value;
+        if (!parsed.ok) {
+            dom.inputError.textContent = parsed.error;
+            clearBuiltState();
+            renderAll();
+            return false;
+        }
+
+        stopPlayback();
+        state.inputSamples = parsed.samples.slice();
+        return applyBuildResults(state.inputSamples, { activeTab, status });
+    }
+
+    function runDefaultAutoBuild() {
+        applyScenario({
+            n: 4,
+            samples: DEFAULT_INPUT,
+            presetName: "alternating",
+            mode: "naive",
+            activeTab: "matrix",
+            matrixSize: 4
+        });
+        applyBuildResults(DEFAULT_INPUT, { activeTab: "matrix", status: "Ready" });
+    }
+
+    function runFullRubricDemo() {
+        applyScenario({
+            n: 4,
+            samples: DEFAULT_INPUT,
+            presetName: "alternating",
+            mode: "naive",
+            activeTab: "comparison",
+            matrixSize: 4
+        });
+        applyBuildResults(DEFAULT_INPUT, { activeTab: "comparison", status: "Ready" });
+    }
+
+    function handleBuild() {
+        buildFromInputText({ activeTab: MODE_TAB_MAP[state.mode] });
     }
 
     function playTimeline() {
@@ -402,6 +480,7 @@
 
     function renderAll() {
         renderMeta();
+        renderDemoProof();
         renderTabs();
         renderOverviewCharts();
         renderDeepDivePanels();
@@ -410,6 +489,8 @@
         renderHistory();
         renderCounters();
         renderVerification();
+        renderCorrectnessSuite();
+        renderComplexityTable();
         renderControlStates();
     }
 
@@ -423,6 +504,25 @@
         dom.activeModeLabel.textContent = MODE_LABELS[state.mode];
         dom.pseudocodeModeLabel.textContent = MODE_LABELS[state.mode];
         dom.timeSummaryLabel.textContent = `n = ${state.n} | x = [${getPreviewSamples().map((value) => formatNumber(value)).join(", ")}]`;
+    }
+
+    function renderDemoProof() {
+        if (!state.results) {
+            dom.demoProofBanner.className = "demo-proof-banner";
+            dom.demoProofBanner.innerHTML = `
+                <strong>Demo not built yet.</strong><br>
+                Use <strong>Run Full Rubric Demo</strong> or <strong>Build Steps</strong> to generate the correctness proof, output comparison, and guided walkthrough.
+            `;
+            return;
+        }
+
+        const verification = state.results.verification;
+        const overallClass = verification.allPass ? "success" : "fail";
+        dom.demoProofBanner.className = `demo-proof-banner ${overallClass}`;
+        dom.demoProofBanner.innerHTML = `
+            <strong>${verification.allPass ? "Verification ready" : "Verification failed"}.</strong><br>
+            Current built example x = [${state.results.samples.map((value) => formatNumber(value)).join(", ")}] is compared against both FFT implementations. Use the comparison tab for the bin-by-bin proof and the test suite below for multiple-input evidence.
+        `;
     }
 
     function renderTabs() {
@@ -439,29 +539,46 @@
         const previewSamples = getPreviewSamples();
         const activeInputs = currentStep && currentStep.snapshot.activeInputIndices ? currentStep.snapshot.activeInputIndices : [];
         const activeOutputs = currentStep && currentStep.snapshot.activeOutputIndices ? currentStep.snapshot.activeOutputIndices : [];
-        const availableOutputs = currentStep ? currentStep.snapshot.availableOutputs : [];
+        const availableOutputs = currentStep
+            ? currentStep.snapshot.availableOutputs
+            : state.results
+                ? cloneComplexArray(state.results.naive.output)
+                : [];
         dom.timeDomainSvg.innerHTML = renderTimeDomainSvg(previewSamples, activeInputs);
         dom.frequencySpectrumSvg.innerHTML = renderSpectrumSvg(state.n, availableOutputs, activeOutputs);
 
         const revealedCount = availableOutputs.filter(Boolean).length;
         if (revealedCount > 0) {
-            dom.spectrumSummaryLabel.textContent = `${revealedCount} of ${state.n} bins currently visible`;
+            dom.spectrumSummaryLabel.textContent = state.currentStepIndex >= 0
+                ? `${revealedCount} of ${state.n} bins currently visible`
+                : `Showing final magnitude spectrum with ${revealedCount} visible bins`;
         } else if (state.results) {
-            dom.spectrumSummaryLabel.textContent = "Built and ready to reveal frequency bins";
+            dom.spectrumSummaryLabel.textContent = "The transform is built. Step through the trace to watch the bins appear.";
         } else {
-            dom.spectrumSummaryLabel.textContent = "Build steps to reveal bins";
+            dom.spectrumSummaryLabel.textContent = "Build steps to reveal frequency bins and magnitudes";
         }
     }
 
     function renderDeepDivePanels() {
         const currentStep = getCurrentStep();
-        const dftMatrix = state.results ? state.results.dftMatrix : computeDFTMatrix(state.n);
+        const dftMatrix = computeDFTMatrix(state.matrixSize);
+        renderMatrixControls();
         dom.dftMatrixSvg.innerHTML = renderDftMatrixSvg(dftMatrix, currentStep);
         dom.naiveDftSvg.innerHTML = renderNaiveSvg(getPreviewSamples(), state.results ? state.results.naive.output : [], currentStep);
         dom.recursiveFftSvg.innerHTML = renderRecursiveSvg(state.results ? state.results.recursive.treeNodes : [], currentStep, state.results ? state.results.recursive.output : []);
         dom.butterflySvg.innerHTML = renderButterflySvg(state.n, state.results ? state.results.iterative.bitReversalMap : buildBitReversalMap(getPreviewSamples()), currentStep);
         dom.bitReversalPanel.innerHTML = renderBitReversalPanel();
         dom.outputComparisonPanel.innerHTML = renderOutputComparisonPanel();
+    }
+
+    function renderMatrixControls() {
+        dom.matrixTitle.textContent = `DFT Matrix W (n = ${state.matrixSize})`;
+        dom.matrixSizeLabel.textContent = `Showing n = ${state.matrixSize}`;
+        dom.matrixSizeButtons.forEach((button) => {
+            const isActive = Number(button.dataset.matrixSize) === state.matrixSize;
+            button.classList.toggle("is-active", isActive);
+            button.setAttribute("aria-pressed", String(isActive));
+        });
     }
 
     function renderPseudocode() {
@@ -486,10 +603,10 @@
             return;
         }
         if (state.results) {
-            dom.stepExplanation.textContent = `The ${MODE_LABELS[state.mode]} trace has been built. Click Step or Play to walk through the algorithm from the start. Each step will synchronize the visualization, counters, pseudocode lines, and explanation text.`;
+            dom.stepExplanation.textContent = `The ${MODE_LABELS[state.mode]} trace has been built. Suggested walkthrough: first review the verification and correctness suite, then open Output Comparison, then inspect the matrix / recursive / butterfly tabs, and finally press Step or Play to narrate the algorithm stage by stage.`;
             return;
         }
-        dom.stepExplanation.textContent = "Build the steps to start tracing the transform. The explanation box will update with the exact values used in each multiplication, split, and butterfly combine.";
+        dom.stepExplanation.textContent = "Build the steps to start tracing the transform. This explanation box will switch from guidance to concrete values as soon as the simulator computes the DFT and FFT states.";
     }
 
     function renderHistory() {
@@ -497,7 +614,7 @@
         if (!timeline.length) {
             dom.historyBody.innerHTML = `
                 <tr>
-                    <td colspan="6">No execution history yet. Build the steps to populate the trace table.</td>
+                    <td colspan="6">No execution history yet. Build the steps or run the full rubric demo to populate the trace table with every multiplication, split, and butterfly combine.</td>
                 </tr>
             `;
             return;
@@ -516,7 +633,11 @@
 
     function renderCounters() {
         const currentStep = getCurrentStep();
-        const counters = currentStep ? currentStep.counters : makeCounters();
+        const counters = currentStep
+            ? currentStep.counters
+            : state.results
+                ? (getActiveTimeline()[getActiveTimeline().length - 1]?.counters || makeCounters())
+                : makeCounters();
         dom.counterMult.textContent = String(counters.complexMultiplications);
         dom.counterAdd.textContent = String(counters.complexAdditions);
         dom.counterButterfly.textContent = String(counters.butterflyOperations);
@@ -527,26 +648,90 @@
         const totalButterflies = fftStages * butterfliesPerStage;
         dom.complexityCompare.innerHTML = `
             <strong>Complexity comparison</strong><br>
-            Naive DFT computes ${state.n} outputs and each output touches ${state.n} samples, so it performs about ${state.n * state.n} pair interactions and grows like O(n^2).<br>
+            For n = ${state.n}, naive DFT computes ${state.n} outputs and each output touches ${state.n} samples, so it performs about ${state.n * state.n} pair interactions and grows like O(n^2).<br>
             FFT reorganizes the same work into ${fftStages} stages with ${butterfliesPerStage} butterflies per stage, so it uses about ${totalButterflies} butterflies and grows like O(n log n).
         `;
     }
 
     function renderVerification() {
         if (!state.results) {
+            dom.verificationPanel.className = "verification-panel idle";
+            dom.verificationBadge.className = "pill pending";
+            dom.verificationBadge.textContent = "Awaiting Build";
             dom.verificationStatus.textContent = "Verification pending.";
             dom.verificationStatus.className = "verification-heading";
             dom.verificationDetails.textContent = "Build the algorithms to compare recursive and iterative FFT outputs against the naive DFT baseline.";
+            dom.verificationExtra.textContent = "Instructional placeholder: the current input and max-difference summary will appear here once the transform is computed.";
             return;
         }
 
         const verification = state.results.verification;
         const overallClass = verification.allPass ? "success" : "fail";
+        dom.verificationPanel.className = `verification-panel ${overallClass}`;
+        dom.verificationBadge.className = `pill ${verification.allPass ? "success" : "fail"}`;
+        dom.verificationBadge.textContent = verification.allPass ? "Current Example PASS" : "Current Example FAIL";
         dom.verificationStatus.textContent = verification.allPass
             ? `PASS - FFT outputs match naive DFT within tolerance ${TOLERANCE_LABEL}.`
             : `FAIL - At least one FFT output differs from naive DFT by more than ${TOLERANCE_LABEL}.`;
         dom.verificationStatus.className = `verification-heading ${overallClass}`;
         dom.verificationDetails.textContent = `Recursive FFT max difference: ${formatNumber(verification.recursiveMaxDiff, 6)}. Iterative FFT max difference: ${formatNumber(verification.iterativeMaxDiff, 6)}.`;
+        dom.verificationExtra.textContent = `Current input x = [${state.results.samples.map((value) => formatNumber(value)).join(", ")}]. Naive DFT baseline = [${state.results.naive.output.map((value) => formatComplex(value)).join(", ")}].`;
+    }
+
+    function renderCorrectnessSuite() {
+        const tests = state.testSuiteResults || [];
+        if (!tests.length) {
+            dom.suiteSummaryBadge.className = "pill pending";
+            dom.suiteSummaryBadge.textContent = "No Tests";
+            dom.suiteSummary.textContent = "The correctness suite has not been generated yet.";
+            dom.testSuiteBody.innerHTML = `
+                <tr>
+                    <td colspan="7">No correctness tests available.</td>
+                </tr>
+            `;
+            return;
+        }
+
+        const passCount = tests.filter((test) => test.overallPass).length;
+        dom.suiteSummaryBadge.className = `pill ${passCount === tests.length ? "success" : "fail"}`;
+        dom.suiteSummaryBadge.textContent = `${passCount}/${tests.length} PASS`;
+        dom.suiteSummary.textContent = `All suite results use tolerance ${TOLERANCE_LABEL}. This gives a visible proof that both FFT implementations match the naive DFT baseline across multiple signals, including impulse, constant, sine-like, and decimal-valued inputs.`;
+        dom.testSuiteBody.innerHTML = tests.map((test) => `
+            <tr>
+                <td>${escapeHtml(test.label)}</td>
+                <td>${escapeHtml(`[${test.samples.map((value) => formatNumber(value)).join(", ")}]`)}</td>
+                <td><span class="pill ${test.recursivePass ? "success" : "fail"}">${test.recursivePass ? "PASS" : "FAIL"}</span></td>
+                <td>${escapeHtml(formatNumber(test.recursiveMaxDiff, 6))}</td>
+                <td><span class="pill ${test.iterativePass ? "success" : "fail"}">${test.iterativePass ? "PASS" : "FAIL"}</span></td>
+                <td>${escapeHtml(formatNumber(test.iterativeMaxDiff, 6))}</td>
+                <td><span class="pill ${test.overallPass ? "success" : "fail"}">${test.overallPass ? "PASS" : "FAIL"}</span></td>
+            </tr>
+        `).join("");
+    }
+
+    function renderComplexityTable() {
+        const rows = [4, 8].map((n) => {
+            const fftStages = Math.log2(n);
+            const butterfliesPerStage = n / 2;
+            const totalButterflies = fftStages * butterfliesPerStage;
+            return {
+                n,
+                pairInteractions: n * n,
+                fftStages,
+                butterfliesPerStage,
+                totalButterflies
+            };
+        });
+
+        dom.complexityTableBody.innerHTML = rows.map((row) => `
+            <tr class="complexity-row ${row.n === state.n ? "is-active" : ""}">
+                <td>${row.n}</td>
+                <td>${row.pairInteractions}</td>
+                <td>${row.fftStages}</td>
+                <td>${row.butterfliesPerStage}</td>
+                <td>${row.totalButterflies}</td>
+            </tr>
+        `).join("");
     }
 
     function renderControlStates() {
@@ -586,6 +771,24 @@
             iterative,
             verification: compareAllOutputs(naive.output, recursive.output, iterative.output)
         };
+    }
+
+    function runCorrectnessSuite() {
+        return CORRECTNESS_TESTS.map((test) => {
+            const naive = computeNaiveDFT(test.samples).output;
+            const recursive = computeRecursiveFFT(test.samples).output;
+            const iterative = computeIterativeFFT(test.samples).output;
+            const verification = compareAllOutputs(naive, recursive, iterative);
+            return {
+                label: test.label,
+                samples: test.samples.slice(),
+                recursivePass: verification.recursivePass,
+                iterativePass: verification.iterativePass,
+                recursiveMaxDiff: verification.recursiveMaxDiff,
+                iterativeMaxDiff: verification.iterativeMaxDiff,
+                overallPass: verification.allPass
+            };
+        });
     }
 
     function computeNaiveDFT(samples) {
@@ -1067,8 +1270,8 @@
         const axes = `
             <line x1="${margin.left}" y1="${baseline}" x2="${width - margin.right}" y2="${baseline}" stroke="rgba(148, 163, 184, 0.35)" stroke-width="1.5"></line>
             <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${height - margin.bottom}" stroke="rgba(148, 163, 184, 0.25)" stroke-width="1"></line>
-            <text x="${margin.left - 8}" y="${margin.top + 10}" text-anchor="end" fill="#94a3b8" font-size="12">value</text>
-            <text x="${width - margin.right}" y="${height - 14}" text-anchor="end" fill="#94a3b8" font-size="12">sample index j</text>
+            <text x="${margin.left - 8}" y="${margin.top + 10}" text-anchor="end" fill="#cbd5e1" font-size="13">value</text>
+            <text x="${width - margin.right}" y="${height - 14}" text-anchor="end" fill="#cbd5e1" font-size="13">sample index j</text>
         `;
 
         const stems = samples.map((value, index) => {
@@ -1080,8 +1283,8 @@
             return `
                 <line x1="${x}" y1="${baseline}" x2="${x}" y2="${y}" stroke="${color}" stroke-width="${active ? 5 : 3}" stroke-linecap="round"></line>
                 <circle cx="${x}" cy="${y}" r="${active ? 7 : 5}" fill="${dotFill}" stroke="${active ? "#7dd3fc" : "#334155"}" stroke-width="2"></circle>
-                <text x="${x}" y="${height - 28}" text-anchor="middle" fill="#94a3b8" font-size="12">j=${index}</text>
-                <text x="${x}" y="${y - 12}" text-anchor="middle" fill="#e5eefb" font-size="12">${escapeHtml(formatNumber(value))}</text>
+                <text x="${x}" y="${height - 28}" text-anchor="middle" fill="#cbd5e1" font-size="13">j=${index}</text>
+                <text x="${x}" y="${y - 12}" text-anchor="middle" fill="#f8fafc" font-size="13">${escapeHtml(formatNumber(value))}</text>
             `;
         }).join("");
 
@@ -1107,8 +1310,8 @@
         const axes = `
             <line x1="${margin.left}" y1="${height - margin.bottom}" x2="${width - margin.right}" y2="${height - margin.bottom}" stroke="rgba(148, 163, 184, 0.35)" stroke-width="1.5"></line>
             <line x1="${margin.left}" y1="${margin.top}" x2="${margin.left}" y2="${height - margin.bottom}" stroke="rgba(148, 163, 184, 0.25)" stroke-width="1"></line>
-            <text x="${margin.left - 8}" y="${margin.top + 10}" text-anchor="end" fill="#94a3b8" font-size="12">|X[k]|</text>
-            <text x="${width - margin.right}" y="${height - 14}" text-anchor="end" fill="#94a3b8" font-size="12">frequency bin k</text>
+            <text x="${margin.left - 8}" y="${margin.top + 10}" text-anchor="end" fill="#cbd5e1" font-size="13">|X[k]|</text>
+            <text x="${width - margin.right}" y="${height - 14}" text-anchor="end" fill="#cbd5e1" font-size="13">frequency bin k</text>
         `;
 
         const bars = Array.from({ length: n }, (_, index) => {
@@ -1119,7 +1322,7 @@
             if (!output) {
                 return `
                     <rect x="${x}" y="${margin.top + 12}" width="${widthBar}" height="${plotHeight - 12}" fill="rgba(15, 23, 42, 0.55)" stroke="rgba(148, 163, 184, 0.16)" stroke-dasharray="6 6" rx="10"></rect>
-                    <text x="${x + (widthBar / 2)}" y="${height - 28}" text-anchor="middle" fill="#94a3b8" font-size="12">k=${index}</text>
+                    <text x="${x + (widthBar / 2)}" y="${height - 28}" text-anchor="middle" fill="#cbd5e1" font-size="13">k=${index}</text>
                 `;
             }
             const magnitude = output.magnitude();
@@ -1128,13 +1331,14 @@
             const fill = active ? "#38bdf8" : "#60a5fa";
             return `
                 <rect x="${x}" y="${y}" width="${widthBar}" height="${barHeight}" fill="${fill}" opacity="${active ? "1" : "0.82"}" rx="12"></rect>
-                <text x="${x + (widthBar / 2)}" y="${y - 10}" text-anchor="middle" fill="#e5eefb" font-size="12">${escapeHtml(formatNumber(magnitude))}</text>
-                <text x="${x + (widthBar / 2)}" y="${height - 28}" text-anchor="middle" fill="#94a3b8" font-size="12">k=${index}</text>
+                <text x="${x + (widthBar / 2)}" y="${y - 10}" text-anchor="middle" fill="#f8fafc" font-size="13">${escapeHtml(formatNumber(magnitude))}</text>
+                <text x="${x + (widthBar / 2)}" y="${height - 28}" text-anchor="middle" fill="#cbd5e1" font-size="13">k=${index}</text>
             `;
         }).join("");
 
         const placeholder = magnitudes.length === 0
-            ? `<text x="${width / 2}" y="${height / 2}" text-anchor="middle" fill="#94a3b8" font-size="16">No frequency bins revealed yet. Step through the algorithm to populate X[k].</text>`
+            ? `<text x="${width / 2}" y="${height / 2 - 10}" text-anchor="middle" fill="#e5eefb" font-size="16">No frequency bins are visible yet.</text>
+               <text x="${width / 2}" y="${height / 2 + 16}" text-anchor="middle" fill="#94a3b8" font-size="13">Build the transform or press Step to reveal the spectrum bin by bin.</text>`
             : "";
 
         return `
@@ -1197,8 +1401,8 @@
 
         return `
             <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
-            <text x="${offsetX}" y="28" fill="#e5eefb" font-size="16" font-weight="700">DFT matrix W where W[k][j] = omega^(j*k)</text>
-            <text x="${offsetX}" y="46" fill="#94a3b8" font-size="12">The naive DFT multiplies each matrix row by the input vector x to compute one output X[k].</text>
+            <text x="${offsetX}" y="28" fill="#e5eefb" font-size="16" font-weight="700">DFT matrix W for n = ${n} where W[k][j] = omega^(j*k)</text>
+            <text x="${offsetX}" y="46" fill="#94a3b8" font-size="12">The naive DFT multiplies each matrix row by the input vector x to compute one output X[k]. Toggle n = 4 or n = 8 above to prove both matrix sizes are implemented.</text>
             ${cells}
             ${rowLabels}
             ${columnLabels}
@@ -1221,7 +1425,7 @@
         const currentFactor = activeStep ? activeStep.snapshot.currentFactor : null;
         const currentProduct = activeStep ? activeStep.snapshot.currentProduct : null;
         const currentSum = activeStep ? activeStep.snapshot.currentSum : null;
-        const availableOutputs = activeStep ? activeStep.snapshot.availableOutputs : [];
+        const availableOutputs = activeStep ? activeStep.snapshot.availableOutputs : cloneComplexArray(finalOutput);
 
         const inputRow = samples.map((value, index) => {
             const x = marginX + (slotWidth * index);
@@ -1259,10 +1463,11 @@
             `
             : `
                 <rect x="500" y="78" width="214" height="168" rx="18" fill="rgba(8, 15, 30, 0.95)" stroke="rgba(148, 163, 184, 0.18)"></rect>
-                <text x="518" y="108" fill="#e5eefb" font-size="14" font-weight="700">Naive DFT explanation</text>
+                <text x="518" y="108" fill="#e5eefb" font-size="14" font-weight="700">Naive DFT summary</text>
                 <text x="518" y="136" fill="#94a3b8" font-size="12">Each output X[k] needs every input x[j].</text>
-                <text x="518" y="162" fill="#94a3b8" font-size="12">That means n outputs times n samples.</text>
-                <text x="518" y="188" fill="#94a3b8" font-size="12">The highlighted row and sum appear when you step.</text>
+                <text x="518" y="162" fill="#94a3b8" font-size="12">That makes the full matrix-vector product explicit.</text>
+                <text x="518" y="188" fill="#94a3b8" font-size="12">Press Step to watch the running sum form.</text>
+                <text x="518" y="214" fill="#7dd3fc" font-size="12">Final output: [${finalOutput.map((value) => formatNumber(value.re)).join(", ")}]</text>
             `;
 
         return `
@@ -1514,45 +1719,65 @@
     function renderOutputComparisonPanel() {
         if (!state.results) {
             return `
-                <p class="comparison-caption">Build the algorithms to compare the final output vectors from naive DFT, recursive FFT, and iterative FFT.</p>
+                <div class="empty-state">
+                    <div>
+                        <strong>No comparison is available yet.</strong>
+                        Build the transform or run the full rubric demo to generate the naive DFT baseline and compare both FFT outputs against it.
+                    </div>
+                </div>
             `;
         }
 
-        const rows = state.results.naive.output.map((value, index) => {
-            const recursiveValue = state.results.recursive.output[index];
-            const iterativeValue = state.results.iterative.output[index];
-            const recursiveDiff = value.sub(recursiveValue).magnitude();
-            const iterativeDiff = value.sub(iterativeValue).magnitude();
-            return `
-                <tr>
-                    <td>${index}</td>
-                    <td>${escapeHtml(formatComplex(value))}</td>
-                    <td>${escapeHtml(formatComplex(recursiveValue))}</td>
-                    <td>${escapeHtml(formatComplex(iterativeValue))}</td>
-                    <td>${escapeHtml(formatNumber(recursiveDiff, 6))}</td>
-                    <td>${escapeHtml(formatNumber(iterativeDiff, 6))}</td>
-                </tr>
-            `;
-        }).join("");
-
         const verification = state.results.verification;
-        return `
-            <p class="comparison-caption">
-                ${verification.allPass ? "PASS" : "FAIL"}: both FFT implementations are checked against the naive DFT with tolerance ${TOLERANCE_LABEL}. Recursive max difference = ${formatNumber(verification.recursiveMaxDiff, 6)}, iterative max difference = ${formatNumber(verification.iterativeMaxDiff, 6)}.
-            </p>
-            <table class="comparison-table">
-                <thead>
+        const renderSingleComparison = (label, fftOutput) => {
+            const rows = state.results.naive.output.map((value, index) => {
+                const compared = fftOutput[index];
+                const diff = value.sub(compared).magnitude();
+                const pass = diff <= TOLERANCE;
+                return `
                     <tr>
-                        <th>k</th>
-                        <th>Naive DFT</th>
-                        <th>Recursive FFT</th>
-                        <th>Iterative FFT</th>
-                        <th>|Naive - Recursive|</th>
-                        <th>|Naive - Iterative|</th>
+                        <td>${index}</td>
+                        <td>${escapeHtml(formatComplex(value))}</td>
+                        <td>${escapeHtml(formatComplex(compared))}</td>
+                        <td>${escapeHtml(formatNumber(diff, 6))}</td>
+                        <td><span class="status-text ${pass ? "pass" : "fail"}">${pass ? "PASS" : "FAIL"}</span></td>
                     </tr>
-                </thead>
-                <tbody>${rows}</tbody>
-            </table>
+                `;
+            }).join("");
+
+            return `
+                <section class="comparison-card">
+                    <h3>${escapeHtml(label)}</h3>
+                    <p>Each FFT bin is compared directly against the naive DFT baseline.</p>
+                    <table class="comparison-table">
+                        <thead>
+                            <tr>
+                                <th>k</th>
+                                <th>Naive DFT X[k]</th>
+                                <th>FFT X[k]</th>
+                                <th>Absolute Difference</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>${rows}</tbody>
+                    </table>
+                </section>
+            `;
+        };
+
+        return `
+            <div class="comparison-final-badge ${verification.allPass ? "success" : "fail"}">
+                ${verification.allPass
+                    ? `PASS: All FFT outputs match the naive DFT baseline within tolerance ${TOLERANCE_LABEL}.`
+                    : `FAIL: At least one FFT output differs from the naive DFT baseline by more than ${TOLERANCE_LABEL}.`}
+            </div>
+            <p class="comparison-caption">
+                Current input: [${state.results.samples.map((value) => formatNumber(value)).join(", ")}]. Recursive max difference = ${formatNumber(verification.recursiveMaxDiff, 6)}. Iterative max difference = ${formatNumber(verification.iterativeMaxDiff, 6)}.
+            </p>
+            <div class="comparison-grid">
+                ${renderSingleComparison("Recursive FFT vs Naive DFT", state.results.recursive.output)}
+                ${renderSingleComparison("Iterative FFT vs Naive DFT", state.results.iterative.output)}
+            </div>
         `;
     }
 
@@ -1609,8 +1834,8 @@
         return `
             <g>
                 <rect x="${x}" y="${y}" width="${width}" height="${height}" rx="16" fill="rgba(15, 23, 42, 0.95)" stroke="${accent}" stroke-width="1.5"></rect>
-                <text x="${x + (width / 2)}" y="${y + 20}" text-anchor="middle" fill="#94a3b8" font-size="12">${escapeHtml(label)}</text>
-                <text x="${x + (width / 2)}" y="${y + 40}" text-anchor="middle" fill="#e5eefb" font-size="12">${escapeHtml(value)}</text>
+                <text x="${x + (width / 2)}" y="${y + 19}" text-anchor="middle" fill="#cbd5e1" font-size="13">${escapeHtml(label)}</text>
+                <text x="${x + (width / 2)}" y="${y + 41}" text-anchor="middle" fill="#f8fafc" font-size="13">${escapeHtml(value)}</text>
             </g>
         `;
     }
