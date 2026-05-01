@@ -116,6 +116,8 @@
         speed: 1,
         currentStepIndex: -1,
         matrixSize: 4,
+        matrixView: "flow",
+        matrixFocusRow: 0,
         results: null,
         testSuiteResults: [],
         timelines: {
@@ -169,13 +171,19 @@
         dom.frequencySpectrumSvg = document.getElementById("frequency-spectrum-svg");
         dom.dftMatrixSvg = document.getElementById("dft-matrix-svg");
         dom.matrixTitle = document.getElementById("matrix-title");
+        dom.matrixLead = document.getElementById("matrix-lead");
         dom.matrixSizeLabel = document.getElementById("matrix-size-label");
         dom.matrixSizeButtons = Array.from(document.querySelectorAll("[data-matrix-size]"));
+        dom.matrixViewButtons = Array.from(document.querySelectorAll("[data-matrix-view]"));
+        dom.matrixFocusLabel = document.getElementById("matrix-focus-label");
+        dom.matrixRowSelector = document.getElementById("matrix-row-selector");
+        dom.matrixRowExplainer = document.getElementById("matrix-row-explainer");
+        dom.matrixLegend = document.getElementById("matrix-legend");
+        dom.matrixSideNote = document.getElementById("matrix-side-note");
         dom.naiveDftSvg = document.getElementById("naive-dft-svg");
         dom.recursiveFftSvg = document.getElementById("recursive-fft-svg");
         dom.butterflySvg = document.getElementById("butterfly-svg");
         dom.bitReversalPanel = document.getElementById("bit-reversal-panel");
-        dom.outputComparisonPanel = document.getElementById("output-comparison-panel");
         dom.pseudocodePanel = document.getElementById("pseudocode-panel");
         dom.pseudocodeModeLabel = document.getElementById("pseudocode-mode-label");
         dom.stepExplanation = document.getElementById("step-explanation");
@@ -268,8 +276,29 @@
         dom.matrixSizeButtons.forEach((button) => {
             button.addEventListener("click", () => {
                 state.matrixSize = Number(button.dataset.matrixSize);
+                state.matrixFocusRow = Math.min(state.matrixFocusRow, state.matrixSize - 1);
+                hideTooltip();
                 renderDeepDivePanels();
             });
+        });
+
+        dom.matrixViewButtons.forEach((button) => {
+            button.addEventListener("click", () => {
+                state.matrixView = button.dataset.matrixView;
+                hideTooltip();
+                renderDeepDivePanels();
+            });
+        });
+
+        dom.matrixRowSelector.addEventListener("click", (event) => {
+            const button = event.target.closest("[data-matrix-row]");
+            if (!button) {
+                return;
+            }
+            state.matrixFocusRow = Number(button.dataset.matrixRow);
+            state.matrixView = "focus";
+            hideTooltip();
+            renderDeepDivePanels();
         });
 
         dom.historyBody.addEventListener("click", (event) => {
@@ -287,6 +316,17 @@
                 return;
             }
             showTooltip(tooltipTarget.dataset.tooltip, event.clientX, event.clientY);
+        });
+
+        dom.dftMatrixSvg.addEventListener("click", (event) => {
+            const rowTarget = findDatasetTarget(event.target, dom.dftMatrixSvg, "matrixRow");
+            if (!rowTarget) {
+                return;
+            }
+            state.matrixFocusRow = Number(rowTarget.dataset.matrixRow);
+            state.matrixView = "focus";
+            hideTooltip();
+            renderDeepDivePanels();
         });
 
         dom.dftMatrixSvg.addEventListener("mouseleave", hideTooltip);
@@ -527,23 +567,131 @@
     function renderDeepDivePanels() {
         const currentStep = getCurrentStep();
         const dftMatrix = computeDFTMatrix(state.matrixSize);
-        renderMatrixControls();
-        dom.dftMatrixSvg.innerHTML = renderDftMatrixSvg(dftMatrix, currentStep);
+        const matrixPreview = buildMatrixPreview(dftMatrix);
+        renderMatrixControls(matrixPreview);
+        renderMatrixSupport(matrixPreview);
+        dom.dftMatrixSvg.innerHTML = renderDftMatrixSvg(matrixPreview, currentStep);
         dom.naiveDftSvg.innerHTML = renderNaiveSvg(getPreviewSamples(), state.results ? state.results.naive.output : [], currentStep);
         dom.recursiveFftSvg.innerHTML = renderRecursiveSvg(state.results ? state.results.recursive.treeNodes : [], currentStep, state.results ? state.results.recursive.output : []);
         dom.butterflySvg.innerHTML = renderButterflySvg(state.n, state.results ? state.results.iterative.bitReversalMap : buildBitReversalMap(getPreviewSamples()), currentStep);
         dom.bitReversalPanel.innerHTML = renderBitReversalPanel();
-        dom.outputComparisonPanel.innerHTML = renderOutputComparisonPanel();
     }
 
-    function renderMatrixControls() {
-        dom.matrixTitle.textContent = `DFT Matrix W (n = ${state.matrixSize})`;
-        dom.matrixSizeLabel.textContent = `Showing n = ${state.matrixSize}`;
+    function renderMatrixControls(matrixPreview) {
+        const sampleText = `[${matrixPreview.samples.map((value) => formatNumber(value)).join(", ")}]`;
+        dom.matrixTitle.textContent = "How the DFT Matrix Builds X";
+        dom.matrixLead.textContent = matrixPreview.usesCurrentInput
+            ? `Each row of W multiplies the current input x = ${sampleText} to compute one output frequency X[k]. Zero-valued samples are dimmed so the real contributors stand out immediately.`
+            : `Each row of W multiplies the example input x = ${sampleText} to compute one output frequency X[k]. This preview uses a size-matched example so the matrix and vector stay aligned.`;
+        dom.matrixSizeLabel.textContent = matrixPreview.usesCurrentInput
+            ? `Current input, n = ${state.matrixSize}`
+            : `Example n = ${state.matrixSize}`;
         dom.matrixSizeButtons.forEach((button) => {
             const isActive = Number(button.dataset.matrixSize) === state.matrixSize;
             button.classList.toggle("is-active", isActive);
             button.setAttribute("aria-pressed", String(isActive));
         });
+        dom.matrixViewButtons.forEach((button) => {
+            const isActive = button.dataset.matrixView === state.matrixView;
+            button.classList.toggle("is-active", isActive);
+            button.setAttribute("aria-pressed", String(isActive));
+        });
+        dom.matrixFocusLabel.textContent = `X[${matrixPreview.focusRow}]`;
+    }
+
+    function renderMatrixSupport(matrixPreview) {
+        dom.matrixRowSelector.innerHTML = Array.from({ length: matrixPreview.n }, (_, index) => {
+            const isActive = index === matrixPreview.focusRow;
+            return `
+                <button
+                    class="matrix-row-button ${isActive ? "is-active" : ""}"
+                    data-matrix-row="${index}"
+                    type="button"
+                    aria-pressed="${isActive ? "true" : "false"}"
+                >
+                    X[${index}]
+                </button>
+            `;
+        }).join("");
+        dom.matrixRowExplainer.innerHTML = renderMatrixRowExplainer(matrixPreview);
+        dom.matrixLegend.innerHTML = renderMatrixLegend();
+        dom.matrixSideNote.textContent = matrixPreview.zeroIndices.length
+            ? `Columns with x[j] = 0 are intentionally muted because multiplying by zero removes that term from every selected row.`
+            : `Every x[j] in this example is active, so each matrix entry contributes to the selected dot product.`;
+    }
+
+    function buildMatrixPreview(matrix) {
+        const safeMatrix = Array.isArray(matrix) ? matrix : [];
+        const matrixSize = safeMatrix.length || Math.max(1, Number(state.matrixSize) || 4);
+        const samples = getMatrixPreviewSamples(matrixSize);
+        const focusRow = Math.max(0, Math.min(Number(state.matrixFocusRow) || 0, matrixSize - 1));
+        const outputs = safeMatrix.length ? multiplyMatrixBySamples(safeMatrix, samples) : [];
+        const focusEntries = safeMatrix[focusRow] || [];
+        const rowEntries = focusEntries.map((entry, index) => {
+            const sampleValue = samples[index];
+            return {
+                ...entry,
+                sampleValue,
+                contribution: entry.value.mul(Complex.fromReal(sampleValue)),
+                isZeroInput: isZeroNumber(sampleValue)
+            };
+        });
+        return {
+            n: matrixSize,
+            matrix: safeMatrix,
+            samples,
+            outputs,
+            focusRow,
+            rowEntries,
+            zeroIndices: samples.map((value, index) => (isZeroNumber(value) ? index : -1)).filter((index) => index >= 0),
+            nonZeroIndices: samples.map((value, index) => (!isZeroNumber(value) ? index : -1)).filter((index) => index >= 0),
+            usesCurrentInput: Array.isArray(state.inputSamples) && state.inputSamples.length === matrixSize
+        };
+    }
+
+    function renderMatrixRowExplainer(matrixPreview) {
+        const nonZeroIndices = matrixPreview.nonZeroIndices.map((index) => `x[${index}]`);
+        const contributionCards = matrixPreview.rowEntries.map((entry) => {
+            const title = `w^${entry.power % matrixPreview.n} * x[${entry.column}]`;
+            const detail = entry.isZeroInput
+                ? `${formatComplex(entry.value, 2)} * 0 = 0`
+                : `${formatComplex(entry.value, 2)} * ${formatNumber(entry.sampleValue)} = ${formatComplex(entry.contribution, 2)}`;
+            return `
+                <article class="matrix-term ${entry.isZeroInput ? "is-zero" : "is-live"}">
+                    <span class="matrix-term-label">j = ${entry.column}</span>
+                    <strong>${escapeHtml(title)}</strong>
+                    <small>${escapeHtml(detail)}</small>
+                </article>
+            `;
+        }).join("");
+
+        return `
+            <div class="matrix-row-summary">
+                <div>
+                    <span class="matrix-row-eyebrow">Selected row-dot-vector product</span>
+                    <strong>X[${matrixPreview.focusRow}] = ${escapeHtml(formatComplex(matrixPreview.outputs[matrixPreview.focusRow], 2))}</strong>
+                </div>
+                <span class="mono-badge">${matrixPreview.nonZeroIndices.length} active / ${matrixPreview.zeroIndices.length} zero inputs</span>
+            </div>
+            <p class="matrix-row-note">Each card below is one term in row ${matrixPreview.focusRow} of W multiplying the matching sample x[j].</p>
+            <p class="matrix-row-note">${nonZeroIndices.length ? `Active inputs in this example: ${nonZeroIndices.join(", ")}.` : "All samples are zero, so every term vanishes."}</p>
+            <div class="matrix-contribution-grid">${contributionCards}</div>
+        `;
+    }
+
+    function renderMatrixLegend() {
+        return `
+            <p class="matrix-legend-caption">Color shows the phase of each root of unity.</p>
+            <div class="matrix-phase-bar" aria-hidden="true"></div>
+            <div class="matrix-phase-scale" aria-hidden="true">
+                <span>-180 deg</span>
+                <span>-90 deg</span>
+                <span>0 deg</span>
+                <span>+90 deg</span>
+                <span>+180 deg</span>
+            </div>
+            <p class="matrix-row-note">Repeated hues mean repeated rotations on the complex unit circle, so matching colors signal matching phase behavior.</p>
+        `;
     }
 
     function renderPseudocode() {
@@ -568,7 +716,7 @@
             return;
         }
         if (state.results) {
-            dom.stepExplanation.textContent = `The ${MODE_LABELS[state.mode]} trace has been built. Suggested walkthrough: first review the verification and correctness suite, then open Output Comparison, then inspect the matrix / recursive / butterfly tabs, and finally press Step or Play to narrate the algorithm stage by stage.`;
+            dom.stepExplanation.textContent = `The ${MODE_LABELS[state.mode]} trace has been built. Suggested walkthrough: first review the verification and correctness suite, then inspect the matrix, recursive, butterfly, and bit-reversal views, and finally press Step or Play to narrate the algorithm stage by stage.`;
             return;
         }
         dom.stepExplanation.textContent = "Build the steps to start tracing the transform. This explanation box will switch from guidance to concrete values as soon as the simulator computes the DFT and FFT states.";
@@ -1314,67 +1462,163 @@
         `;
     }
 
-    function renderDftMatrixSvg(matrix, currentStep) {
-        const n = matrix.length;
-        const width = 760;
-        const height = 480;
-        const margin = { top: 54, right: 36, bottom: 92, left: 76 };
-        const gridWidth = width - margin.left - margin.right;
-        const gridHeight = height - margin.top - margin.bottom - 40;
-        const cellSize = Math.min(gridWidth / n, gridHeight / n);
-        const offsetX = margin.left + ((gridWidth - (cellSize * n)) / 2);
-        const offsetY = margin.top + ((gridHeight - (cellSize * n)) / 2);
-        const activeK = currentStep && currentStep.mode === "naive" ? currentStep.snapshot.currentK : null;
-        const activeJ = currentStep && currentStep.mode === "naive" ? currentStep.snapshot.currentJ : null;
+    function renderDftMatrixSvg(matrixPreview, currentStep) {
+        const { matrix, samples, outputs, focusRow, n } = matrixPreview;
+        const width = 920;
+        const height = 620;
+        const gap = n === 4 ? 12 : 8;
+        const matrixArea = 420;
+        const cellSize = (matrixArea - (gap * (n - 1))) / n;
+        const matrixWidth = (cellSize * n) + (gap * (n - 1));
+        const matrixHeight = matrixWidth;
+        const offsetX = 224;
+        const offsetY = 172;
+        const inputY = 88;
+        const inputHeight = 56;
+        const inputTextSize = n === 8 ? 12 : 14;
+        const outputX = offsetX + matrixWidth + 62;
+        const outputWidth = 178;
+        const outputHeight = Math.min(64, Math.max(36, cellSize - 8));
+        const usingNaiveTrace = currentStep && currentStep.mode === "naive" && state.n === n;
+        const traceRow = usingNaiveTrace ? currentStep.snapshot.currentK : null;
+        const traceColumn = usingNaiveTrace ? currentStep.snapshot.currentJ : null;
+        const emphasizedRow = traceRow !== null ? traceRow : (state.matrixView === "focus" ? focusRow : null);
+        const showFlow = state.matrixView !== "matrix";
+        const flowOpacity = showFlow ? 1 : 0.18;
+
+        const inputGuides = samples.map((value, index) => {
+            const x = offsetX + (index * (cellSize + gap)) + (cellSize / 2);
+            const isZero = isZeroNumber(value);
+            return `
+                <line
+                    x1="${x}"
+                    y1="${inputY + inputHeight}"
+                    x2="${x}"
+                    y2="${offsetY - 10}"
+                    stroke="${isZero ? "rgba(100, 116, 139, 0.14)" : "rgba(56, 189, 248, 0.18)"}"
+                    stroke-width="1.5"
+                    stroke-dasharray="4 6"
+                    opacity="${flowOpacity}"
+                ></line>
+            `;
+        }).join("");
+
+        const inputVector = samples.map((value, index) => {
+            const x = offsetX + (index * (cellSize + gap));
+            const isZero = isZeroNumber(value);
+            const isTrace = traceColumn === index;
+            const stroke = isTrace
+                ? "#f59e0b"
+                : isZero
+                    ? "rgba(148, 163, 184, 0.14)"
+                    : "rgba(56, 189, 248, 0.34)";
+            const fill = isZero ? "rgba(15, 23, 42, 0.56)" : "rgba(15, 23, 42, 0.96)";
+            return `
+                <g opacity="${flowOpacity}">
+                    <rect x="${x}" y="${inputY}" width="${cellSize}" height="${inputHeight}" rx="18" fill="${fill}" stroke="${stroke}" stroke-width="${isTrace ? "2.4" : "1.4"}"></rect>
+                    <text x="${x + (cellSize / 2)}" y="${inputY + 18}" text-anchor="middle" fill="${isZero ? "#64748b" : "#94a3b8"}" font-size="${n === 8 ? 10 : 12}">x[${index}]</text>
+                    <text x="${x + (cellSize / 2)}" y="${inputY + 40}" text-anchor="middle" fill="${isZero ? "#94a3b8" : "#f8fafc"}" font-size="${inputTextSize}" font-weight="700">${escapeHtml(formatNumber(value))}</text>
+                </g>
+            `;
+        }).join("");
 
         const cells = matrix.map((row, k) => row.map((entry, j) => {
-            const x = offsetX + (j * cellSize);
-            const y = offsetY + (k * cellSize);
+            const x = offsetX + (j * (cellSize + gap));
+            const y = offsetY + (k * (cellSize + gap));
             const phase = entry.value.phase();
             const fill = phaseToColor(phase);
-            const tooltip = `omega^(${j}*${k})\\nvalue ~= ${formatComplex(entry.value)}\\nphase = ${formatNumber((phase * 180) / Math.PI)} degrees`;
-            const stroke = activeK === k && activeJ === j
+            const sampleValue = samples[j];
+            const contribution = entry.value.mul(Complex.fromReal(sampleValue));
+            const isZeroContribution = isZeroNumber(sampleValue);
+            let fillOpacity = showFlow ? (isZeroContribution ? 0.28 : 0.72) : 0.9;
+            if (emphasizedRow !== null) {
+                if (k !== emphasizedRow) {
+                    fillOpacity = state.matrixView === "focus" ? (isZeroContribution ? 0.05 : 0.14) : fillOpacity * 0.72;
+                } else {
+                    fillOpacity = isZeroContribution ? 0.24 : 0.94;
+                }
+            }
+            const stroke = emphasizedRow === k && traceColumn === j
                 ? "#f59e0b"
-                : activeK === k
-                    ? "#38bdf8"
+                : emphasizedRow === k
+                    ? "#7dd3fc"
                     : "rgba(148, 163, 184, 0.16)";
-            const strokeWidth = activeK === k && activeJ === j ? 4 : activeK === k ? 2.5 : 1.2;
+            const strokeWidth = emphasizedRow === k && traceColumn === j ? 3.2 : emphasizedRow === k ? 2 : 1.1;
+            const tooltip = [
+                `W[${k}][${j}] = omega^(${j}*${k})`,
+                `value ~= ${formatComplex(entry.value, 2)}`,
+                `phase = ${formatNumber((phase * 180) / Math.PI, 0)} deg`,
+                `x[${j}] = ${formatNumber(sampleValue)}`,
+                `term = ${formatComplex(contribution, 2)}`
+            ].join("\\n");
             return `
-                <g data-tooltip="${escapeAttr(tooltip)}">
-                    <rect x="${x}" y="${y}" width="${cellSize - 4}" height="${cellSize - 4}" rx="12" fill="${fill}" fill-opacity="0.92" stroke="${stroke}" stroke-width="${strokeWidth}"></rect>
-                    <text x="${x + ((cellSize - 4) / 2)}" y="${y + ((cellSize - 4) / 2) + 4}" text-anchor="middle" fill="#e5eefb" font-size="${n === 8 ? 10 : 12}" font-family="SFMono-Regular, Consolas, monospace">w^${(j * k) % n}</text>
+                <g data-tooltip="${escapeAttr(tooltip)}" data-matrix-row="${k}" data-matrix-column="${j}" style="cursor: pointer;">
+                    <rect x="${x}" y="${y}" width="${cellSize}" height="${cellSize}" rx="${n === 8 ? 14 : 18}" fill="${fill}" fill-opacity="${fillOpacity}" stroke="${stroke}" stroke-width="${strokeWidth}"></rect>
+                    <text
+                        x="${x + (cellSize / 2)}"
+                        y="${y + (cellSize / 2) + 4}"
+                        text-anchor="middle"
+                        fill="#f8fafc"
+                        font-size="${n === 8 ? 10 : 12}"
+                        font-family="SFMono-Regular, Consolas, monospace"
+                    >
+                        w^${entry.power % n}
+                    </text>
                 </g>
             `;
         }).join("")).join("");
 
         const rowLabels = Array.from({ length: n }, (_, k) => {
-            const y = offsetY + (k * cellSize) + (cellSize / 2);
-            return `<text x="${offsetX - 18}" y="${y + 4}" text-anchor="end" fill="${activeK === k ? "#7dd3fc" : "#94a3b8"}" font-size="13">X[${k}]</text>`;
+            const y = offsetY + (k * (cellSize + gap)) + (cellSize / 2);
+            const isActive = emphasizedRow === k;
+            return `
+                <g data-matrix-row="${k}" style="cursor: pointer;">
+                    <text x="${offsetX - 86}" y="${y - 8}" text-anchor="start" fill="${isActive ? "#7dd3fc" : "#64748b"}" font-size="11">row ${k}</text>
+                    <text x="${offsetX - 86}" y="${y + 12}" text-anchor="start" fill="${isActive ? "#e5eefb" : "#94a3b8"}" font-size="16" font-weight="700">X[${k}]</text>
+                </g>
+            `;
         }).join("");
 
-        const columnLabels = Array.from({ length: n }, (_, j) => {
-            const x = offsetX + (j * cellSize) + (cellSize / 2);
-            return `<text x="${x}" y="${offsetY - 16}" text-anchor="middle" fill="${activeJ === j ? "#fcd34d" : "#94a3b8"}" font-size="13">x[${j}]</text>`;
-        }).join("");
-
-        const legendX = offsetX;
-        const legendY = offsetY + (cellSize * n) + 28;
-        const legendStops = Array.from({ length: 12 }, (_, index) => {
-            const phase = -Math.PI + ((index / 11) * (2 * Math.PI));
-            return `<rect x="${legendX + (index * 26)}" y="${legendY}" width="26" height="14" fill="${phaseToColor(phase)}"></rect>`;
+        const outputVector = outputs.map((value, index) => {
+            const centerY = offsetY + (index * (cellSize + gap)) + (cellSize / 2);
+            const y = centerY - (outputHeight / 2);
+            const isActive = emphasizedRow === index;
+            const lineColor = isActive ? "#38bdf8" : "rgba(148, 163, 184, 0.24)";
+            const boxOpacity = showFlow ? (state.matrixView === "focus" && !isActive ? 0.42 : 1) : 0.14;
+            const textY = y + (outputHeight / 2) + 4;
+            return `
+                <g data-matrix-row="${index}" style="cursor: pointer;" opacity="${boxOpacity}">
+                    <line x1="${offsetX + matrixWidth + 14}" y1="${centerY}" x2="${outputX - 20}" y2="${centerY}" stroke="${lineColor}" stroke-width="${isActive ? "2.4" : "1.3"}"></line>
+                    <polygon points="${outputX - 20},${centerY - 4} ${outputX - 20},${centerY + 4} ${outputX - 12},${centerY}" fill="${lineColor}"></polygon>
+                    <rect x="${outputX}" y="${y}" width="${outputWidth}" height="${outputHeight}" rx="18" fill="rgba(15, 23, 42, 0.96)" stroke="${isActive ? "#38bdf8" : "rgba(148, 163, 184, 0.18)"}" stroke-width="${isActive ? "2.2" : "1.2"}"></rect>
+                    <text x="${outputX + 16}" y="${textY}" fill="${isActive ? "#7dd3fc" : "#94a3b8"}" font-size="${n === 8 ? 10 : 11}">X[${index}]</text>
+                    <text x="${outputX + outputWidth - 14}" y="${textY}" text-anchor="end" fill="#f8fafc" font-size="${n === 8 ? 10 : 11}" font-family="SFMono-Regular, Consolas, monospace">${escapeHtml(formatComplex(value, n === 8 ? 1 : 2))}</text>
+                </g>
+            `;
         }).join("");
 
         return `
             <rect x="0" y="0" width="${width}" height="${height}" fill="transparent"></rect>
-            <text x="${offsetX}" y="28" fill="#e5eefb" font-size="16" font-weight="700">DFT matrix W for n = ${n} where W[k][j] = omega^(j*k)</text>
-            <text x="${offsetX}" y="46" fill="#94a3b8" font-size="12">The naive DFT multiplies each matrix row by the input vector x to compute one output X[k]. Toggle n = 4 or n = 8 above to prove both matrix sizes are implemented.</text>
+            <rect x="26" y="24" width="${width - 52}" height="${height - 48}" rx="30" fill="rgba(5, 10, 22, 0.36)" stroke="rgba(148, 163, 184, 0.12)"></rect>
+            <text x="${width / 2}" y="54" text-anchor="middle" fill="#cbd5e1" font-size="15">input vector x -> multiply by W -> output vector X</text>
+            <rect x="${width - 176}" y="30" width="128" height="30" rx="15" fill="rgba(15, 23, 42, 0.92)" stroke="rgba(148, 163, 184, 0.16)"></rect>
+            <text x="${width - 112}" y="49" text-anchor="middle" fill="#e5eefb" font-size="13" font-family="SFMono-Regular, Consolas, monospace">X = W * x</text>
+            <rect x="${offsetX - 22}" y="${offsetY - 24}" width="${matrixWidth + 44}" height="${matrixHeight + 48}" rx="28" fill="rgba(8, 15, 30, 0.5)" stroke="rgba(148, 163, 184, 0.12)"></rect>
+
+            <text x="${offsetX}" y="${inputY - 18}" fill="#7dd3fc" font-size="12" font-weight="700">INPUT VECTOR x</text>
+            <text x="${offsetX}" y="${inputY - 2}" fill="#94a3b8" font-size="12">Zero-valued samples are muted so the real contributors stand out.</text>
+
+            <text x="${offsetX}" y="${offsetY - 22}" fill="#7dd3fc" font-size="12" font-weight="700">DFT MATRIX W</text>
+            <text x="${offsetX}" y="${offsetY - 6}" fill="#94a3b8" font-size="12">Each row is one frequency pattern. Each column aligns with one input sample x[j].</text>
+
+            <text x="${outputX}" y="${offsetY - 22}" fill="#7dd3fc" font-size="12" font-weight="700" opacity="${flowOpacity}">OUTPUT VECTOR X</text>
+            <text x="${outputX}" y="${offsetY - 6}" fill="#94a3b8" font-size="12" opacity="${flowOpacity}">Row k dotted with x produces X[k].</text>
+
+            ${inputGuides}
+            ${inputVector}
             ${cells}
             ${rowLabels}
-            ${columnLabels}
-            <text x="${legendX}" y="${legendY - 8}" fill="#94a3b8" font-size="12">phase-colored roots of unity</text>
-            ${legendStops}
-            <text x="${legendX}" y="${legendY + 32}" fill="#94a3b8" font-size="12">-180 deg</text>
-            <text x="${legendX + 286}" y="${legendY + 32}" fill="#94a3b8" font-size="12">+180 deg</text>
+            ${outputVector}
         `;
     }
 
@@ -1681,71 +1925,6 @@
         `;
     }
 
-    function renderOutputComparisonPanel() {
-        if (!state.results) {
-            return `
-                <div class="empty-state">
-                    <div>
-                        <strong>No comparison is available yet.</strong>
-                        Build the transform to generate the naive DFT baseline and compare both FFT outputs against it.
-                    </div>
-                </div>
-            `;
-        }
-
-        const verification = state.results.verification;
-        const renderSingleComparison = (label, fftOutput) => {
-            const rows = state.results.naive.output.map((value, index) => {
-                const compared = fftOutput[index];
-                const diff = value.sub(compared).magnitude();
-                const pass = diff <= TOLERANCE;
-                return `
-                    <tr>
-                        <td>${index}</td>
-                        <td>${escapeHtml(formatComplex(value))}</td>
-                        <td>${escapeHtml(formatComplex(compared))}</td>
-                        <td>${escapeHtml(formatNumber(diff, 6))}</td>
-                        <td><span class="status-text ${pass ? "pass" : "fail"}">${pass ? "PASS" : "FAIL"}</span></td>
-                    </tr>
-                `;
-            }).join("");
-
-            return `
-                <section class="comparison-card">
-                    <h3>${escapeHtml(label)}</h3>
-                    <p>Each FFT bin is compared directly against the naive DFT baseline.</p>
-                    <table class="comparison-table">
-                        <thead>
-                            <tr>
-                                <th>k</th>
-                                <th>Naive DFT X[k]</th>
-                                <th>FFT X[k]</th>
-                                <th>Absolute Difference</th>
-                                <th>Status</th>
-                            </tr>
-                        </thead>
-                        <tbody>${rows}</tbody>
-                    </table>
-                </section>
-            `;
-        };
-
-        return `
-            <div class="comparison-final-badge ${verification.allPass ? "success" : "fail"}">
-                ${verification.allPass
-                    ? `PASS: All FFT outputs match the naive DFT baseline within tolerance ${TOLERANCE_LABEL}.`
-                    : `FAIL: At least one FFT output differs from the naive DFT baseline by more than ${TOLERANCE_LABEL}.`}
-            </div>
-            <p class="comparison-caption">
-                Current input: [${state.results.samples.map((value) => formatNumber(value)).join(", ")}]. Recursive max difference = ${formatNumber(verification.recursiveMaxDiff, 6)}. Iterative max difference = ${formatNumber(verification.iterativeMaxDiff, 6)}.
-            </p>
-            <div class="comparison-grid">
-                ${renderSingleComparison("Recursive FFT vs Naive DFT", state.results.recursive.output)}
-                ${renderSingleComparison("Iterative FFT vs Naive DFT", state.results.iterative.output)}
-            </div>
-        `;
-    }
-
     function renderBitReversalSvg(bitRows) {
         const width = 700;
         const height = 180;
@@ -1828,6 +2007,44 @@
     function getPreviewSamples() {
         const parsed = parseSampleInput(state.inputText, state.n);
         return parsed.ok ? parsed.samples : state.inputSamples;
+    }
+
+    function getMatrixPreviewSamples(expectedLength) {
+        const size = Number(expectedLength) || Number(state.matrixSize) || 4;
+        const currentSamples = Array.isArray(state.inputSamples) ? state.inputSamples : [];
+        if (currentSamples.length === size) {
+            return normalizeSampleVector(getPreviewSamplesForLength(size), size);
+        }
+        return normalizeSampleVector(getPresetSamples(state.currentPreset || "alternating", size), size);
+    }
+
+    function multiplyMatrixBySamples(matrix, samples) {
+        return matrix.map((row) => row.reduce((sum, entry, index) => {
+            const sampleValue = Number.isFinite(samples[index]) ? samples[index] : 0;
+            return sum.add(entry.value.mul(Complex.fromReal(sampleValue)));
+        }, new Complex()));
+    }
+
+    function isZeroNumber(value) {
+        return Math.abs(value) < 1e-12;
+    }
+
+    function getPreviewSamplesForLength(expectedLength) {
+        const parsed = parseSampleInput(state.inputText || "", expectedLength);
+        if (parsed.ok) {
+            return parsed.samples;
+        }
+        return normalizeSampleVector(state.inputSamples, expectedLength);
+    }
+
+    function normalizeSampleVector(samples, expectedLength) {
+        const size = Math.max(1, Number(expectedLength) || 4);
+        const fallback = getPresetSamples(state.currentPreset || "alternating", size);
+        const source = Array.isArray(samples) ? samples : [];
+        return Array.from({ length: size }, (_, index) => {
+            const candidate = source[index];
+            return Number.isFinite(candidate) ? candidate : fallback[index];
+        });
     }
 
     function parseSampleInput(text, expectedLength) {
@@ -1975,6 +2192,17 @@
         let current = target;
         while (current && current !== root) {
             if (current.dataset && current.dataset.tooltip) {
+                return current;
+            }
+            current = current.parentNode;
+        }
+        return null;
+    }
+
+    function findDatasetTarget(target, root, key) {
+        let current = target;
+        while (current && current !== root) {
+            if (current.dataset && current.dataset[key] !== undefined) {
                 return current;
             }
             current = current.parentNode;

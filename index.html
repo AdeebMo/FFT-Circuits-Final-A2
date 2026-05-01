@@ -205,29 +205,80 @@
                         <button class="tab-button" data-tab="recursive" type="button">Recursive FFT</button>
                         <button class="tab-button" data-tab="butterfly" type="button">Butterfly Circuit</button>
                         <button class="tab-button" data-tab="bitreversal" type="button">Bit Reversal</button>
-                        <button class="tab-button" data-tab="comparison" type="button">Output Comparison</button>
                     </div>
 
                     <div class="tab-content">
                         <section class="tab-panel is-active" id="tab-matrix">
-                            <div class="panel-header">
-                                <div>
-                                    <p class="section-kicker">Matrix View</p>
-                                    <h2 id="matrix-title">DFT Matrix W (n = 4)</h2>
+                            <div class="panel-header matrix-header">
+                                <div class="matrix-heading-group">
+                                    <p class="section-kicker">Matrix Intuition</p>
+                                    <h2 id="matrix-title">How the DFT Matrix Builds X</h2>
+                                    <p id="matrix-lead" class="matrix-lead">Each row of W multiplies the input vector x to compute one output frequency X[k].</p>
                                 </div>
                                 <div class="matrix-panel-meta">
-                                    <span id="matrix-size-label" class="mono-badge">Showing n = 4</span>
-                                    <span class="support-text">Each cell shows a root-of-unity power used in matrix-vector multiplication.</span>
+                                    <span id="matrix-size-label" class="mono-badge">Example n = 4</span>
+                                    <span class="mono-badge">W[k][j] = omega^(j*k)</span>
                                 </div>
                             </div>
-                            <div class="matrix-toolbar">
-                                <div class="segment-group mini-segment-group" id="matrix-size-selector" aria-label="DFT matrix size selector">
-                                    <button class="segment is-active" data-matrix-size="4" type="button">Show n = 4 Matrix</button>
-                                    <button class="segment" data-matrix-size="8" type="button">Show n = 8 Matrix</button>
+                            <div class="matrix-toolbar matrix-toolbar-rich">
+                                <div class="matrix-toolbar-group">
+                                    <span class="matrix-toolbar-label">Matrix size</span>
+                                    <div class="segment-group mini-segment-group matrix-toggle" id="matrix-size-selector" aria-label="DFT matrix size selector">
+                                        <button class="segment is-active" data-matrix-size="4" type="button">n = 4</button>
+                                        <button class="segment" data-matrix-size="8" type="button">n = 8</button>
+                                    </div>
+                                </div>
+                                <div class="matrix-toolbar-group">
+                                    <span class="matrix-toolbar-label">Learning view</span>
+                                    <div class="segment-group mini-segment-group matrix-toggle" id="matrix-view-selector" aria-label="DFT matrix learning view">
+                                        <button class="segment" data-matrix-view="matrix" type="button">Matrix only</button>
+                                        <button class="segment is-active" data-matrix-view="flow" type="button">Input + output</button>
+                                        <button class="segment" data-matrix-view="focus" type="button">Focus a row</button>
+                                    </div>
                                 </div>
                             </div>
-                            <div class="svg-frame tall">
-                                <svg id="dft-matrix-svg" viewBox="0 0 760 480" role="img" aria-label="DFT matrix visualization"></svg>
+                            <div class="matrix-learning-strip" aria-label="DFT matrix learning flow">
+                                <article class="matrix-step-card">
+                                    <span class="matrix-step-index">1</span>
+                                    <strong>Start with x</strong>
+                                    <p>Read the sampled input vector and notice which entries are zero.</p>
+                                </article>
+                                <article class="matrix-step-card">
+                                    <span class="matrix-step-index">2</span>
+                                    <strong>Multiply by W</strong>
+                                    <p>Every row of the DFT matrix applies a different frequency pattern to the same input.</p>
+                                </article>
+                                <article class="matrix-step-card">
+                                    <span class="matrix-step-index">3</span>
+                                    <strong>Produce X[k]</strong>
+                                    <p>One row-dot-vector multiplication creates one output bin in the frequency domain.</p>
+                                </article>
+                            </div>
+                            <div class="svg-frame matrix-visual-frame">
+                                <svg id="dft-matrix-svg" viewBox="0 0 920 620" role="img" aria-label="DFT matrix teaching visualization"></svg>
+                            </div>
+                            <div class="matrix-support-grid">
+                                <article class="matrix-support-card">
+                                    <div class="matrix-support-header">
+                                        <div>
+                                            <p class="section-kicker">Row Inspector</p>
+                                            <h3>See One Output Form</h3>
+                                        </div>
+                                        <span id="matrix-focus-label" class="mono-badge">X[0]</span>
+                                    </div>
+                                    <div id="matrix-row-selector" class="matrix-row-selector" aria-label="Output row selector"></div>
+                                    <div id="matrix-row-explainer" class="matrix-row-explainer"></div>
+                                </article>
+                                <article class="matrix-support-card">
+                                    <div class="matrix-support-header">
+                                        <div>
+                                            <p class="section-kicker">Phase Color</p>
+                                            <h3>Why The Cells Change Hue</h3>
+                                        </div>
+                                    </div>
+                                    <div id="matrix-legend" class="matrix-phase-legend"></div>
+                                    <p id="matrix-side-note" class="support-text"></p>
+                                </article>
                             </div>
                         </section>
 
@@ -281,16 +332,6 @@
                             <div id="bit-reversal-panel" class="bit-panel"></div>
                         </section>
 
-                        <section class="tab-panel" id="tab-comparison">
-                            <div class="panel-header">
-                                <div>
-                                    <p class="section-kicker">Correctness Check</p>
-                                    <h2>Naive DFT vs FFT Outputs</h2>
-                                </div>
-                                <span class="support-text">Final frequency bins should agree within floating-point tolerance.</span>
-                            </div>
-                            <div id="output-comparison-panel" class="comparison-table-wrap"></div>
-                        </section>
                     </div>
 
                     <div id="tooltip" class="tooltip" hidden></div>
@@ -454,17 +495,6 @@
                     <p>The naive DFT gives X = [2, 0, 2, 0]. FFT splits the signal into even samples [1, 1] and odd samples [0, 0], computes two smaller transforms, then combines them with twiddle factors. Both algorithms produce the same final output.</p>
                 </details>
 
-                <details class="detail-card">
-                    <summary>Presentation Checklist</summary>
-                    <ul class="presentation-list">
-                        <li>First I show the input signal.</li>
-                        <li>Then I compute the naive DFT.</li>
-                        <li>Next I compare it with FFT.</li>
-                        <li>The key structural advantage is the even/odd split.</li>
-                        <li>The butterfly network shows the O(n log n) structure.</li>
-                        <li>Finally, I verify that FFT output matches the naive DFT output.</li>
-                    </ul>
-                </details>
             </div>
         </section>
     </div>
